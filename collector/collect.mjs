@@ -37,6 +37,11 @@ if (auctionTotal === 0) {
   console.error(`No auction data collected (${failures} of ${houses.length} houses failed).`);
   process.exit(1);
 }
+if (failures > 0) {
+  // The scan is still uploaded; the warning shows on the run summary page.
+  const message = `${failures} of ${houses.length} houses failed; the scan has no data for them.`;
+  console.log(process.env.GITHUB_ACTIONS ? `::warning title=Partial scan (${args.region})::${message}` : message);
+}
 
 // 2026-11-27T06:17:23.456Z -> 20261127T0617Z
 const stamp = `${scan.ts.replace(/[-:]/g, '').slice(0, 13)}Z`;

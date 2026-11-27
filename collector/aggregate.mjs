@@ -3,7 +3,10 @@
 // [minUnit, medianOfMedians, meanQuantity, samples, medianOfMins].
 // Each scan is first reduced to [minUnit, medianUnit, quantity] per item
 // (lib/stats.mjs). medianOfMins is the typical lowest listing, comparable
-// with the lowest buyout of a live scan. Days that already have a file are
+// with the lowest buyout of a live scan. A scan whose houses all have the
+// same Last-Modified times as an earlier scan of the day repeats the same API
+// data (for example a manual run shortly after a scheduled one) and is
+// skipped. Days that already have a file are
 // skipped unless --force is given. Today is skipped as incomplete.
 // Daily files older than the retention window are deleted.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -44,11 +47,19 @@ mkdirSync(outDir, { recursive: true });
 
 // One day at a time: a backfill covers about 350 scans, too many to hold reduced in memory.
 for (const [day, paths] of [...byDay].sort()) {
-  const snaps = paths.map((path) => {
+  const snaps = [];
+  const seen = new Set();
+  for (const path of paths.sort()) {
     const scan = JSON.parse(gunzipSync(readFileSync(path)));
     if (scan.format !== FORMAT) throw new Error(`${path}: unsupported scan format ${scan.format}`);
-    return reduceScan(scan);
-  });
+    const key = dataVersion(scan);
+    if (key && seen.has(key)) {
+      console.log(`${basename(path)}: same API data as an earlier scan, skipped`);
+      continue;
+    }
+    if (key) seen.add(key);
+    snaps.push(reduceScan(scan));
+  }
   const file = join(outDir, `${day}.json.gz`);
   writeFileSync(file, gzipSync(JSON.stringify(aggregateDay(day, snaps))));
   console.log(`${day}: ${snaps.length} scans -> ${file}`);
@@ -59,6 +70,13 @@ for (const f of readdirSync(outDir)) {
     rmSync(join(outDir, f));
     console.log(`${f.slice(0, 10)}: older than the retention window, deleted`);
   }
+}
+
+// The houses' Last-Modified times, or null if any house lacks one.
+function dataVersion(scan) {
+  const entries = Object.entries(scan.houses).sort(([a], [b]) => a - b);
+  if (entries.length === 0 || entries.some(([, h]) => !h.lastModified)) return null;
+  return entries.map(([id, h]) => `${id}=${h.lastModified}`).join(';');
 }
 
 function reduceScan(scan) {

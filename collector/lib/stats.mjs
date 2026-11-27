@@ -2,8 +2,9 @@
 // prices in copper per unit. The median is weighted by quantity, so one cheap
 // single item does not outweigh a large stack.
 //
-// Item auctions are assumed to carry the stack total in `buyout`, as in the
-// Classic Era API. Verify this with `npm run probe` before trusting stack prices.
+// Item auctions are divided by quantity in case `buyout` is a stack total,
+// as in the Classic Era API. In practice they are single items: none of
+// 644,495 EU item auctions on 2026-11-27 had a quantity above 1.
 export function summarizeAuctions({ items, commodities }) {
   const byItem = new Map();
   const add = (itemId, unitPrice, quantity) => {

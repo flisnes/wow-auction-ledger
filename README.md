@@ -83,14 +83,24 @@ In game:
 
 ## Auction houses
 
-The EU API lists 15 houses in five groups of Alliance, Horde and Blackwater (neutral): 110/113/116, 111/114/117, 112/115/118 (empty), 119/120/121 and 123/124/125. House names do not include a realm, and every ruleset lists all 15 houses, so the API does not say which group a realm uses. The four non-empty groups probably match the four rulesets (PvP, Normal, RP, RP-PvP). Compare a price in game with `/ledger house` to find yours.
+Every region lists the same 15 house ids in five groups of Alliance, Horde and Blackwater (neutral). House names do not include a realm, and every ruleset lists all 15 houses, so the API does not say which group a realm uses. Item auctions per house on 2026-11-27 (Alliance / Horde / Blackwater):
 
-Stackable goods are commodities with a `unit_price`. Item auctions are single items (none had quantity above 1 in a 122,000-auction sample).
+| Group | Houses | EU | US | KR | TW |
+|---|---|---|---|---|---|
+| A | 110, 113, 116 | 138k / 138k / 15k | 122k / 139k / 11k | 34k / 35k / 3k | 13k / 14k / 1k |
+| B | 111, 114, 117 | 143k / 126k / 19k | 128k / 134k / 14k | 7k / 3k / 0 | 7k / 6k / 0 |
+| C | 112, 115, 118 | empty | empty | empty | empty |
+| D | 119, 120, 121 | 21k / 12k / 0.5k | 30k / 21k / 1k | empty | empty |
+| E | 123, 124, 125 | 16k / 15k / 0.8k | 28k / 31k / 1k | empty | empty |
+
+EU and US have four rulesets and four non-empty groups; KR and TW have two of each. So each group probably serves one ruleset (PvP, Normal, RP, RP-PvP), but the mapping is unconfirmed. Compare a price in game with `/ledger house` to find yours.
+
+Stackable goods are commodities with a `unit_price`. Item auctions are single items: none of 644,495 EU item auctions had a quantity above 1.
 
 ## To verify
 
 - **Interface number.** The TOC uses `16001`. In game, `/dump select(4, GetBuildInfo())` prints the correct value. The AddOns folder name (`_forever_`) is also unconfirmed.
-- **Random suffixes.** Items are keyed by item id only, so "of the Bear" and "of the Eagle" variants share one price.
+- **Random suffixes.** Prices are keyed by item id only, so "of the Bear" and "of the Eagle" variants share one price. The scans keep each auction's bonus lists, so suffix prices can be added with a backfill.
 
 ## Local commands
 

@@ -65,17 +65,7 @@ A Horde character on the Normal ruleset needs only that group's Horde and Blackw
 
   Plan: option 2 with option 3 as override. Until the group is known, load only the faction-wide medians.
 
-House groups seen on EU (Alliance / Horde / Blackwater):
-
-| Group | Houses | Item auctions |
-|---|---|---|
-| A | 110, 113, 116 | 122k / 122k / 13k |
-| B | 111, 114, 117 | 123k / 108k / 17k |
-| C | 112, 115, 118 | empty |
-| D | 119, 120, 121 | 19k / 11k / 0.5k |
-| E | 123, 124, 125 | 14k / 14k / 0.7k |
-
-Four non-empty groups and four rulesets (PvP, Normal, RP, RP-PvP); the mapping is unconfirmed.
+House groups and their sizes per region are in the README ("Auction houses"). EU and US have four non-empty groups and four rulesets; KR and TW have two of each. The group-to-ruleset mapping is unconfirmed.
 
 ## 3. Detailed 2-hour data for development
 
