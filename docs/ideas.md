@@ -1,6 +1,6 @@
 # Ideas and design notes
 
-Future work, not implemented yet. Numbers come from the EU snapshot taken 2026-11-27.
+Future work and design notes. Numbers come from the EU scans taken 2026-11-27.
 
 ## 1. Price verdict: how cheap or expensive is an item now
 
@@ -24,9 +24,18 @@ Goal: compare the current price (tooltip, or the item open in the AH window) wit
 
 Preferred pair: robust z-score and percentile rank.
 
+### Status
+
+The data side is implemented: every metric above is computed for the daily median and the daily typical lowest listing, and shipped in `Data.lua` (see "Price statistics" in the README). Remaining addon work:
+
+- Parse `statFields` into a name-to-index map, and parse each `stats` string on first use, as for the series.
+- Show statistics only while the whole window is within 30 days by the player's clock (`DATA.days[1] >= cutoffDay()`). Unlike the series, the statistics cannot drop the expired days.
+- Handle `mad` or `resMad` equal to 0 (stable prices): use a floor such as 1% of the median.
+- Size: the statistics add about 9 MB unpacked to roughly 11 MB of series (29 days, all houses). Drop the fields that turn out not to be useful.
+
 ### Pitfalls
 
-- Compare like with like. A live scan gives the lowest buyout, which is below the historical median. Compare it with the historical daily minimum (computed in the daily aggregates, not shipped yet), or compute the quantity-weighted median of the live listings.
+- Compare like with like. A live scan gives the lowest buyout, which is below the historical median. Compare it with the `low.*` statistics (the median of the scan minimums per day), or compute the quantity-weighted median of the live listings.
 - Thin markets. Ship quantity or the number of days with listings, and show no verdict when data is too sparse.
 
 ### Reading the player's AH search
@@ -70,11 +79,10 @@ Four non-empty groups and four rulesets (PvP, Normal, RP, RP-PvP); the mapping i
 
 ## 3. Detailed 2-hour data for development
 
-- Size: one reduced snapshot is about 400 KB gzipped. 12 per day over 29 days is about 140 MB.
-- Do not use a branch in this repository: if it is public, every branch is public. Use a separate private repository (for example `auction-ledger-data`). The collect job pushes each snapshot with a deploy key. The publish job deletes snapshots older than 30 days and replaces the history with one commit, as for the `data` branch.
-- Actions still run in the public repository, so private-repository minute limits do not apply. Git contents do not count against the private storage quota (only artifacts and packages do).
-- The current 4-day snapshot artifacts in a public repository can be downloaded by any signed-in GitHub user.
-- Use: time-of-day patterns, how quickly cheap listings sell, and whether the addon would gain from more than one value per day.
+Implemented: full scans are kept for 29 days as assets of the public `scans` release (see "Scans and backfill" in the README). About 7 MB per scan, 2.5 GB for 29 days.
+
+- Anyone can download them. If that becomes a concern, move them to a separate private repository (for example `auction-ledger-data`) and upload there with a token. Release assets have no storage quota in either case; Actions artifacts do (500 MB on the free plan).
+- Use: time-of-day patterns, how quickly cheap listings sell (auction ids are kept), whether the addon would gain from more than one value per day, and random-suffix prices (bonus lists are kept).
 
 ## 4. Automatic distribution through CurseForge or Wago
 

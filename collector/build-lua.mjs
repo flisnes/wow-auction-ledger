@@ -3,16 +3,23 @@
 // comma-separated string of daily medians in copper (empty for days without
 // listings), which the addon parses on first use.
 //
+// Each house also has a stats table with one comma-separated string per item,
+// field names in AuctionLedger_Data.statFields: the days with listings, the
+// median daily quantity, then lib/window-stats.mjs statistics for the daily
+// median ("median.*") and the daily typical lowest listing ("low.*"). Items
+// with fewer than MIN_DAYS days have no stats entry.
+//
 // House names are not unique (each ruleset group has its own "Alliance
 // Auction House"), so each house is labelled with its id. Houses sharing a
 // name are also combined into a group keyed "group:<name>": per day, the
 // median across those houses. Empty houses are left out.
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { RETENTION_DAYS, windowDays } from './lib/retention.mjs';
 import { median } from './lib/stats.mjs';
+import { MIN_DAYS, SERIES_FIELDS, formatStats, seriesStats } from './lib/window-stats.mjs';
 
 const { values: args } = parseArgs({
   options: {
@@ -21,6 +28,10 @@ const { values: args } = parseArgs({
     out: { type: 'string', default: 'addon/AuctionLedger/Data.lua' },
   },
 });
+
+const SERIES = ['median', 'low', 'qty'];
+const STAT_FIELDS = ['days', 'quantity',
+  ...SERIES_FIELDS.map((f) => `median.${f}`), ...SERIES_FIELDS.map((f) => `low.${f}`)];
 
 const dir = join(args.data, 'daily', args.region);
 const dates = windowDays();
@@ -33,9 +44,12 @@ const getHouse = (key, name) => {
   house.name = name;
   return house;
 };
-const setValue = (house, itemId, dayIndex, value) => {
-  if (!house.items.has(itemId)) house.items.set(itemId, new Array(numDays).fill(null));
-  house.items.get(itemId)[dayIndex] = value;
+const setValues = (house, itemId, dayIndex, values) => {
+  if (!house.items.has(itemId)) {
+    house.items.set(itemId, Object.fromEntries(SERIES.map((s) => [s, new Array(numDays).fill(null)])));
+  }
+  const item = house.items.get(itemId);
+  for (const s of SERIES) item[s][dayIndex] = values[s];
 };
 
 let daysFound = 0;
@@ -51,15 +65,19 @@ dates.forEach((date, dayIndex) => {
     const house = getHouse(Number(houseId), `${src.name} #${houseId}`);
     if (!groups.has(src.name)) groups.set(src.name, new Map());
     const group = groups.get(src.name);
-    for (const [itemId, [, med]] of entries) {
-      setValue(house, Number(itemId), dayIndex, med);
-      if (!group.has(itemId)) group.set(itemId, []);
-      group.get(itemId).push(med);
+    for (const [itemId, [, med, qty, , low = null]] of entries) {
+      const values = { median: med, low, qty };
+      setValues(house, Number(itemId), dayIndex, values);
+      if (!group.has(itemId)) group.set(itemId, Object.fromEntries(SERIES.map((s) => [s, []])));
+      const lists = group.get(itemId);
+      for (const s of SERIES) if (values[s] != null) lists[s].push(values[s]);
     }
   }
   for (const [name, items] of groups) {
     const group = getHouse(`group:${name}`, `${name} (all)`);
-    for (const [itemId, meds] of items) setValue(group, Number(itemId), dayIndex, median(meds));
+    for (const [itemId, lists] of items) {
+      setValues(group, Number(itemId), dayIndex, Object.fromEntries(SERIES.map((s) => [s, median(lists[s])])));
+    }
   }
 });
 
@@ -76,23 +94,44 @@ const lines = [
   `  generated = ${Math.floor(Date.now() / 1000)},`,
   `  maxAgeDays = ${RETENTION_DAYS},`,
   `  days = { ${dates.map(luaString).join(', ')} },`,
+  `  statFields = { ${STAT_FIELDS.map(luaString).join(', ')} },`,
   '  houses = {},',
   '}',
   'local H = AuctionLedger_Data.houses',
 ];
-// One function per house keeps each function's constant table small.
+// One function per table keeps each function's constant table small.
+let itemCount = 0;
+let statCount = 0;
 for (const [key, house] of houses) {
   const luaKey = typeof key === 'number' ? key : luaString(key);
+  const items = [...house.items].sort((a, b) => a[0] - b[0]);
   lines.push(`do local function load() H[${luaKey}] = { name = ${luaString(house.name)}, items = {`);
-  for (const [itemId, values] of [...house.items].sort((a, b) => a[0] - b[0])) {
-    lines.push(`[${itemId}]="${values.map((v) => v ?? '').join(',')}",`);
+  for (const [itemId, series] of items) {
+    lines.push(`[${itemId}]="${series.median.map((v) => v ?? '').join(',')}",`);
   }
   lines.push('} } end load() end');
+
+  lines.push(`do local function load() H[${luaKey}].stats = {`);
+  for (const [itemId, series] of items) {
+    const days = series.median.filter((v) => v != null).length;
+    if (days < MIN_DAYS) continue;
+    const quantity = Math.round(median(series.qty.filter((v) => v != null)));
+    const values = [days, quantity, ...formatStats(seriesStats(series.median)), ...formatStats(seriesStats(series.low))];
+    lines.push(`[${itemId}]="${values.join(',')}",`);
+    statCount++;
+  }
+  lines.push('} end load() end');
+  itemCount += items.length;
 }
 writeFileSync(args.out, `${lines.join('\n')}\n`);
-console.log(`Wrote ${args.out}: ${houses.size} houses, ${daysFound} days between ${dates[0]} and ${dates.at(-1)}`);
+
+const sizeMb = (statSync(args.out).size / 1e6).toFixed(1);
+const summary = `${houses.size} houses, ${daysFound} days between ${dates[0]} and ${dates.at(-1)}, ` +
+  `${itemCount} items, ${statCount} with stats (at least ${MIN_DAYS} days), ${sizeMb} MB`;
+console.log(`Wrote ${args.out}: ${summary}`);
 
 if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'built=true\n');
+if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Data.lua: ${summary}\n`);
 
 function luaString(s) {
   return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n')}"`;

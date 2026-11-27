@@ -1,19 +1,23 @@
-// Combines the snapshots of each completed UTC day into
+// Combines the scans (lib/scan.mjs) of each completed UTC day into
 // <data>/daily/<region>/<YYYY-MM-DD>.json.gz with, per house and item,
-// [minUnit, medianOfMedians, meanQuantity, samples]. Days that already have a
-// file are skipped unless --force is given. Today is skipped as incomplete.
+// [minUnit, medianOfMedians, meanQuantity, samples, medianOfMins].
+// Each scan is first reduced to [minUnit, medianUnit, quantity] per item
+// (lib/stats.mjs). medianOfMins is the typical lowest listing, comparable
+// with the lowest buyout of a live scan. Days that already have a file are
+// skipped unless --force is given. Today is skipped as incomplete.
 // Daily files older than the retention window are deleted.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { oldestKeptDay, utcToday } from './lib/retention.mjs';
-import { median } from './lib/stats.mjs';
+import { FORMAT, decodeHouse } from './lib/scan.mjs';
+import { median, summarizeAuctions } from './lib/stats.mjs';
 
 const { values: args } = parseArgs({
   options: {
     region: { type: 'string', default: 'eu' },
-    snapshots: { type: 'string', default: 'snapshots' },
+    scans: { type: 'string', default: 'scans' },
     data: { type: 'string', default: 'data' },
     force: { type: 'boolean', default: false },
   },
@@ -21,28 +25,33 @@ const { values: args } = parseArgs({
 
 const today = utcToday();
 const oldest = oldestKeptDay();
+const outDir = join(args.data, 'daily', args.region);
 const byDay = new Map();
-const files = existsSync(args.snapshots)
-  ? readdirSync(args.snapshots, { recursive: true }).filter((f) => f.endsWith('.json.gz'))
-  : [];
+const scanName = new RegExp(String.raw`^scan-${args.region}-(\d{4})(\d{2})(\d{2})T\d{4}Z\.json\.gz$`);
+const files = existsSync(args.scans) ? readdirSync(args.scans, { recursive: true }) : [];
 
 for (const f of files) {
-  const snap = JSON.parse(gunzipSync(readFileSync(join(args.snapshots, f))));
-  if (snap.region !== args.region) continue;
-  const day = snap.ts.slice(0, 10);
+  const match = scanName.exec(basename(f));
+  if (!match) continue;
+  const day = `${match[1]}-${match[2]}-${match[3]}`;
   if (day >= today || day < oldest) continue;
+  if (existsSync(join(outDir, `${day}.json.gz`)) && !args.force) continue;
   if (!byDay.has(day)) byDay.set(day, []);
-  byDay.get(day).push(snap);
+  byDay.get(day).push(join(args.scans, f));
 }
 
-const outDir = join(args.data, 'daily', args.region);
 mkdirSync(outDir, { recursive: true });
 
-for (const [day, snaps] of [...byDay].sort()) {
+// One day at a time: a backfill covers about 350 scans, too many to hold reduced in memory.
+for (const [day, paths] of [...byDay].sort()) {
+  const snaps = paths.map((path) => {
+    const scan = JSON.parse(gunzipSync(readFileSync(path)));
+    if (scan.format !== FORMAT) throw new Error(`${path}: unsupported scan format ${scan.format}`);
+    return reduceScan(scan);
+  });
   const file = join(outDir, `${day}.json.gz`);
-  if (existsSync(file) && !args.force) continue;
   writeFileSync(file, gzipSync(JSON.stringify(aggregateDay(day, snaps))));
-  console.log(`${day}: ${snaps.length} snapshots -> ${file}`);
+  console.log(`${day}: ${snaps.length} scans -> ${file}`);
 }
 
 for (const f of readdirSync(outDir)) {
@@ -50,6 +59,14 @@ for (const f of readdirSync(outDir)) {
     rmSync(join(outDir, f));
     console.log(`${f.slice(0, 10)}: older than the retention window, deleted`);
   }
+}
+
+function reduceScan(scan) {
+  const houses = {};
+  for (const [houseId, house] of Object.entries(scan.houses)) {
+    houses[houseId] = { name: house.name, items: summarizeAuctions(decodeHouse(house)) };
+  }
+  return { houses };
 }
 
 function aggregateDay(day, snaps) {
@@ -69,9 +86,9 @@ function aggregateDay(day, snaps) {
     for (const [itemId, entries] of Object.entries(house.items)) {
       const mins = entries.map((e) => e[0]);
       const qty = entries.reduce((sum, e) => sum + e[2], 0) / entries.length;
-      items[itemId] = [Math.min(...mins), median(entries.map((e) => e[1])), Math.round(qty), entries.length];
+      items[itemId] = [Math.min(...mins), median(entries.map((e) => e[1])), Math.round(qty), entries.length, median(mins)];
     }
     houses[houseId] = { name: house.name, items };
   }
-  return { date: day, region: args.region, snapshots: snaps.length, houses };
+  return { date: day, region: args.region, scans: snaps.length, houses };
 }

@@ -11,6 +11,7 @@
     "probe": "node collector/probe.mjs",
     "collect": "node collector/collect.mjs",
     "aggregate": "node collector/aggregate.mjs",
-    "build-lua": "node collector/build-lua.mjs"
+    "build-lua": "node collector/build-lua.mjs",
+    "test": "node --test"
   }
 }

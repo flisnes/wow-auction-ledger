@@ -1,4 +1,4 @@
-name: Collect auction snapshot
+name: Collect auction scan
 
 on:
   # Odd minute: scheduled runs at :00 are the most likely to be delayed or dropped.
@@ -7,11 +7,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: collect
   cancel-in-progress: false
+
+env:
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   collect:
@@ -24,18 +27,28 @@ jobs:
         with:
           node-version: 22
 
-      - name: Fetch and reduce auction houses
+      - name: Fetch all auction houses
         id: collect
         run: node collector/collect.mjs --region "${{ vars.REGION || 'eu' }}" --out out
         env:
           BNET_CLIENT_ID: ${{ secrets.BNET_CLIENT_ID }}
           BNET_CLIENT_SECRET: ${{ secrets.BNET_CLIENT_SECRET }}
 
-      # Snapshots are kept as short-lived artifacts rather than commits so the
-      # repository only grows by one daily aggregate per day.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.collect.outputs.name }}
-          path: out/*.json.gz
-          retention-days: 4
-          if-no-files-found: error
+      # Scans are about 7 MB each, about 2.5 GB for 29 days. They are release
+      # assets because releases have no total size limit, while artifacts
+      # count against a 500 MB storage quota on the free plan.
+      - name: Upload scan to the scans release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view scans > /dev/null 2>&1; then
+            gh release create scans --prerelease --latest=false --title "Auction scans" \
+              --notes "Full auction house scans from the last 29 days, one per collection run. Format: collector/lib/scan.mjs. Source: Blizzard Entertainment."
+          fi
+          gh release upload scans "${{ steps.collect.outputs.file }}"
+
+      - name: Delete scans older than 29 days
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/prune-scans.sh

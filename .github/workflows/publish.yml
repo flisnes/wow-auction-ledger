@@ -4,10 +4,14 @@ on:
   schedule:
     - cron: '47 0 * * *'
   workflow_dispatch:
+    inputs:
+      backfill:
+        description: Rebuild every daily aggregate that still has scans (after a change to the metrics)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
   group: publish
@@ -15,11 +19,13 @@ concurrency:
 
 env:
   REGION: ${{ vars.REGION || 'eu' }}
+  GH_REPO: ${{ github.repository }}
+  BACKFILL: ${{ inputs.backfill }}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -41,23 +47,38 @@ jobs:
             git worktree add --orphan -b data data
           fi
 
-      # Artifacts expire after 4 days, so a skipped publish run is caught up by the next one.
-      - name: Download snapshot artifacts
+      # Scans of days that already have an aggregate are skipped, unless this
+      # is a backfill. A skipped run is caught up by the next one.
+      - name: Download scans
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p snapshots
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | select(.expired | not) | select(.name | startswith("snapshot-")) | "\(.id) \(.name)"' |
-          while read -r id name; do
-            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "snapshots/${name}.zip"
-            unzip -o -q "snapshots/${name}.zip" -d snapshots
-            rm "snapshots/${name}.zip"
-          done
-          echo "$(find snapshots -name '*.json.gz' | wc -l) snapshots downloaded"
+          mkdir -p scans
+          if ! release_id=$(gh api "repos/${GH_REPO}/releases/tags/scans" --jq .id 2>/dev/null); then
+            echo "No scans release yet"
+            exit 0
+          fi
+          today=$(date -u +%Y%m%d)
+          patterns=()
+          while read -r name; do
+            stamp=${name#scan-${REGION}-}
+            day=${stamp:0:8}
+            [ "$day" = "$today" ] && continue
+            daily="data/daily/${REGION}/${day:0:4}-${day:4:2}-${day:6:2}.json.gz"
+            [ "$BACKFILL" != true ] && [ -f "$daily" ] && continue
+            patterns+=(--pattern "$name")
+          done < <(gh api --paginate "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100" \
+            --jq ".[].name | select(startswith(\"scan-${REGION}-\"))")
+          if [ ${#patterns[@]} -gt 0 ]; then
+            gh release download scans --dir scans "${patterns[@]}"
+          fi
+          echo "$(( ${#patterns[@]} / 2 )) scans downloaded"
 
       - name: Aggregate completed days and drop expired ones
-        run: node collector/aggregate.mjs --region "$REGION" --snapshots snapshots --data data
+        run: |
+          force=()
+          if [ "$BACKFILL" = true ]; then force=(--force); fi
+          node collector/aggregate.mjs --region "$REGION" --scans scans --data data "${force[@]}"
 
       # The branch is replaced by one parentless commit, so days that left the
       # 30-day window do not remain in its history.
@@ -102,8 +123,14 @@ jobs:
           else
             gh release create "$tag" "$zip" --latest \
               --title "Price data ${VERSION}" \
-              --notes "Daily auction house medians for the 29 days before ${VERSION}, region ${REGION}. Source: Blizzard Entertainment."
+              --notes "Daily auction house medians and price statistics for the 29 days before ${VERSION}, region ${REGION}. Source: Blizzard Entertainment."
           fi
+
+      - name: Delete scans older than 29 days
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/prune-scans.sh
 
       # Only today's release is kept, so no published release holds data older
       # than 30 days. If nothing was built today, every older release is removed.

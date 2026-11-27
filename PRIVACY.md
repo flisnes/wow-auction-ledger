@@ -4,12 +4,12 @@ Auction Ledger uses the Blizzard Battle.net Game Data API with application crede
 
 ## What is collected
 
-Public auction house listings for World of Warcraft: Forever: item id, price, quantity and time left. Seller names, character data, account data and other personal data are not requested, stored or published.
+Public auction house listings for World of Warcraft: Forever: auction id, item id with bonus lists and modifiers, buyout, bid, quantity and time left. Seller names, character data, account data and other personal data are not requested, stored or published.
 
 ## What is stored and published
 
-- Per item and auction house: the lowest price, the median price and the listed quantity for each day.
-- Raw snapshots are kept as GitHub Actions artifacts for 4 days.
+- Per item and auction house: the lowest price, the typical lowest price, the median price and the listed quantity for each day, and statistics derived from these over the 29-day window.
+- Full scans (every listing, with the fields above) are kept as assets of the `scans` release for 29 days.
 - Daily aggregates are kept for 30 days on the `data` branch and in the current addon release, then deleted.
 
 ## Who receives it
