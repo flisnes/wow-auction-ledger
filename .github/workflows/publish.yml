@@ -22,6 +22,8 @@ env:
   REGIONS: ${{ vars.REGIONS || '["eu","us","kr","tw"]' }}
   ADDON_REGION: ${{ vars.ADDON_REGION || 'eu' }}
   GH_REPO: ${{ github.repository }}
+  # Private repository holding the scans (see collect.yml).
+  DATA_REPO: ${{ vars.DATA_REPO || format('{0}/auction-ledger-data', github.repository_owner) }}
   BACKFILL: ${{ inputs.backfill }}
 
 jobs:
@@ -55,13 +57,13 @@ jobs:
       # but still have daily files are included so their old days get deleted.
       - name: Aggregate completed days and drop expired ones
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
         run: |
           force=()
           if [ "$BACKFILL" = true ]; then force=(--force); fi
           regions=$( (jq -r '.[]' <<< "$REGIONS"; ls data/daily 2>/dev/null || true) | sort -u)
           for region in $regions; do
-            bash .github/scripts/download-scans.sh "$region" scans
+            GH_REPO=$DATA_REPO bash .github/scripts/download-scans.sh "$region" scans
             node collector/aggregate.mjs --region "$region" --scans scans --data data "${force[@]}"
             rm -rf scans
           done
@@ -115,7 +117,8 @@ jobs:
       - name: Delete scans older than 29 days
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ env.DATA_REPO }}
+          GH_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
         run: bash .github/scripts/prune-scans.sh
 
       # Only today's release is kept, so no published release holds data older

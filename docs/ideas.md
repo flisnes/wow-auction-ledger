@@ -69,9 +69,7 @@ House groups and their sizes per region are in the README ("Auction houses"). EU
 
 ## 3. Detailed 2-hour data for development
 
-Implemented: full scans for all four regions are kept for 29 days as assets of the public `scans-<region>` releases (see "Scans and backfill" in the README). About 7 MB per EU or US scan, 5.7 GB in total for 29 days.
-
-- Anyone can download them. If that becomes a concern, move them to a separate private repository (for example `auction-ledger-data`) and upload there with a token. Release assets have no storage quota in either case; Actions artifacts do (500 MB on the free plan).
+Implemented: full scans for all four regions are kept for 29 days as release assets in the private repository `auction-ledger-data` (see "Scans and backfill" in the README). About 7 MB per EU or US scan, 5.7 GB in total for 29 days. The workflows write there with a fine-grained token (secret `DATA_REPO_TOKEN`), which expires and must be renewed.
 - Use: time-of-day patterns, how quickly cheap listings sell (auction ids are kept), whether the addon would gain from more than one value per day, and random-suffix prices (bonus lists are kept).
 
 ## 4. Automatic distribution through CurseForge or Wago

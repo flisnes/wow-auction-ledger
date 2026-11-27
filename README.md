@@ -8,7 +8,7 @@ Data source: Blizzard Entertainment. This project is not affiliated with or endo
 
 | Step | Where | Schedule |
 |---|---|---|
-| Fetch every auction house, one parallel job per region, upload the full scan to the region's `scans-<region>` release, delete scans older than 29 days | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
+| Fetch every auction house, one parallel job per region, upload the full scan to the region's `scans-<region>` release in the private data repository, delete scans older than 29 days | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
 | Per region, reduce each scan to `[min, median, quantity]` per item, aggregate completed UTC days, delete days outside the window, replace the `data` branch with one commit | `.github/workflows/publish.yml` | daily at 00:47 UTC |
 | Generate `Data.lua` for `ADDON_REGION` (default EU) with daily series and price statistics, zip the addon, publish today's release, delete all older releases | same workflow | daily |
 | Run the collector unit tests | `.github/workflows/test.yml` | on push and pull request |
@@ -17,7 +17,7 @@ Prices are in copper per unit. The daily value per item is the median of the sca
 
 ## Scans and backfill
 
-Each collection run stores one full scan per region as an asset of the `scans-<region>` pre-release: every listing with auction id, item id, bonus lists and modifiers, buyout, bid, quantity and time left (format in `collector/lib/scan.mjs`). An EU or US scan is about 7 MB gzipped, a KR or TW scan about 1 MB; all regions together come to about 5.7 GB for 29 days. Release assets have no total size limit; Actions artifacts would count against a 500 MB quota on the free plan. A release holds at most 1000 assets, so each region has its own (about 350 scans each).
+Each collection run stores one full scan per region as an asset of the `scans-<region>` pre-release in a private repository (`auction-ledger-data`). The scans are for internal processing and development only and are not published: every listing with auction id, item id, bonus lists and modifiers, buyout, bid, quantity and time left (format in `collector/lib/scan.mjs`). An EU or US scan is about 7 MB gzipped, a KR or TW scan about 1 MB; all regions together come to about 5.7 GB for 29 days. Release assets have no total size limit; Actions artifacts would count against a 500 MB quota on the free plan. A release holds at most 1000 assets, so each region has its own (about 350 scans each).
 
 After a change to how scans are reduced or aggregated, run "Publish daily data and addon release" manually with **backfill** checked. It rebuilds every daily aggregate, in every region, that still has scans. The oldest window day can miss its first scans, since scans are deleted 29 days after collection.
 
@@ -62,8 +62,9 @@ The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a
 2. Copy `.env.example` to `.env` and fill in the two values.
 3. Run `npm run probe` (Node 22 or later) and check the output against the items under "To verify".
 4. Push the repository to GitHub and add the repository secrets `BNET_CLIENT_ID` and `BNET_CLIENT_SECRET`.
-5. Optional repository variables: `REGIONS`, a JSON array of regions to collect and aggregate (default `["eu","us","kr","tw"]`), and `ADDON_REGION`, the region packaged in the addon release (default `eu`).
-6. Run "Collect auction scan" manually once to confirm it works. The first release appears the day after the first full UTC day of collection.
+5. Create a private repository `<owner>/auction-ledger-data` with at least one commit. Create a fine-grained personal access token with access to that repository only and the repository permission Contents: Read and write. Add it to this repository as the secret `DATA_REPO_TOKEN`. The token expires; renew it before then, or collection stops.
+6. Optional repository variables: `DATA_REPO` (default `<owner>/auction-ledger-data`), `REGIONS`, a JSON array of regions to collect and aggregate (default `["eu","us","kr","tw"]`), and `ADDON_REGION`, the region packaged in the addon release (default `eu`).
+7. Run "Collect auction scan" manually once to confirm it works. The first release appears the day after the first full UTC day of collection.
 
 ## Installing the addon
 

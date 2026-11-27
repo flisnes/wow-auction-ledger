@@ -7,14 +7,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: collect
   cancel-in-progress: false
 
+# Scans go to a private repository (repository variable DATA_REPO, default
+# <owner>/auction-ledger-data), written with the DATA_REPO_TOKEN secret: a
+# fine-grained token with Contents read/write on that repository only.
 env:
-  GH_REPO: ${{ github.repository }}
+  GH_REPO: ${{ vars.DATA_REPO || format('{0}/auction-ledger-data', github.repository_owner) }}
+  GH_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
 
 jobs:
   collect:
@@ -45,9 +49,12 @@ jobs:
       # free plan. One release per region keeps each under the 1000-asset limit.
       - name: Upload scan to the region's scans release
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: scans-${{ matrix.region }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret DATA_REPO_TOKEN is not set"
+            exit 1
+          fi
           if ! gh release view "$TAG" > /dev/null 2>&1; then
             gh release create "$TAG" --prerelease --latest=false --title "Auction scans ${{ matrix.region }}" \
               --notes "Full auction house scans for region ${{ matrix.region }} from the last 29 days, one per collection run. Format: collector/lib/scan.mjs. Source: Blizzard Entertainment."
@@ -63,6 +70,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Delete scans older than 29 days
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/prune-scans.sh
