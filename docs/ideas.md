@@ -75,3 +75,22 @@ Four non-empty groups and four rulesets (PvP, Normal, RP, RP-PvP); the mapping i
 - Actions still run in the public repository, so private-repository minute limits do not apply. Git contents do not count against the private storage quota (only artifacts and packages do).
 - The current 4-day snapshot artifacts in a public repository can be downloaded by any signed-in GitHub user.
 - Use: time-of-day patterns, how quickly cheap listings sell, and whether the addon would gain from more than one value per day.
+
+## 4. Automatic distribution through CurseForge or Wago
+
+Goal: players get the daily data through the CurseForge app or WowUp, with no script or git.
+
+- Wowhead does not host or distribute addons. CurseForge and Wago Addons do, and both have upload APIs. A project can publish to both.
+- Mechanism: after building the zip, the publish workflow uploads it with the CurseForge upload API (`POST https://wow.curseforge.com/api/projects/{id}/upload-file`, API token as a repository secret) or with the BigWigs packager action, which also supports Wago. The project is created once by hand.
+- Precedent: as far as known, Oribos Exchange shipped price data through frequent CurseForge releases.
+
+### To check or handle
+
+1. Forever support: a guide reports a WoW Forever file for TSM on CurseForge. Confirm that the CurseForge app finds a Forever install and offers Forever files.
+2. Approval delay: CurseForge reviews uploaded files. If review takes hours, the daily update arrives late.
+3. Old versions stay downloadable, which conflicts with the 30-day rule (API terms 2(t)). The upload API probably cannot delete files. Mitigations: the addon already hides days older than 30 days by the player's clock; archive or delete old files on the site periodically.
+4. Opt the project out of CurseForge author rewards. The API terms forbid using the Data for monetization (2(i)) and ads attached to the application (2(c)).
+5. Size: a daily download of 2 to 3 MB per player (about 11 MB unpacked). Per-house loading (section 2) does not reduce the download, only what the game loads.
+6. Split into two projects: "Auction Ledger" (code, rare releases) and "Auction Ledger Data" (daily data releases, a dependency of the code addon). This keeps the code changelog readable.
+
+The GitHub release and `tools/update-addon.ps1` stay as a fallback.
