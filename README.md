@@ -48,12 +48,16 @@ In game:
 
 - Item tooltips show the latest daily median and the 7-day and 29-day averages.
 - `/ledger <item link or id>` opens a bar graph of the daily medians.
-- `/ledger house` lists auction houses, `/ledger house <n>` selects one, `/ledger house auto` detects it from realm and faction. When no house matches, the region-wide median (`All houses`) is used.
+- `/ledger house` lists auction houses, `/ledger house <n>` selects one for the current realm and faction, and `/ledger house auto` returns to the default: the median across all houses of your faction.
+
+## Auction houses
+
+The EU API lists 15 houses in five groups of Alliance, Horde and Blackwater (neutral): 110/113/116, 111/114/117, 112/115/118 (empty), 119/120/121 and 123/124/125. House names do not include a realm, and every ruleset lists all 15 houses, so the API does not say which group a realm uses. The four non-empty groups probably match the four rulesets (PvP, Normal, RP, RP-PvP). Compare a price in game with `/ledger house` to find yours.
+
+Stackable goods are commodities with a `unit_price`. Item auctions are single items (none had quantity above 1 in a 122,000-auction sample).
 
 ## To verify
 
-- **Stack buyouts.** `collector/lib/stats.mjs` assumes `buyout` on item auctions is the stack total. Compare a stacked auction from `npm run probe` with the in-game price.
-- **House names.** Auto-detection expects names containing realm and faction. Check the names `npm run probe` prints.
 - **Interface number.** The TOC uses `16001`. In game, `/dump select(4, GetBuildInfo())` prints the correct value. The AddOns folder name (`_forever_`) is also unconfirmed.
 - **Random suffixes.** Items are keyed by item id only, so "of the Bear" and "of the Eagle" variants share one price.
 

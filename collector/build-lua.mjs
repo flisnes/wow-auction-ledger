@@ -3,7 +3,10 @@
 // comma-separated string of daily medians in copper (empty for days without
 // listings), which the addon parses on first use.
 //
-// Also adds a region-wide house "all": per day, the median across houses.
+// House names are not unique (each ruleset group has its own "Alliance
+// Auction House"), so each house is labelled with its id. Houses sharing a
+// name are also combined into a group keyed "group:<name>": per day, the
+// median across those houses. Empty houses are left out.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -41,17 +44,23 @@ dates.forEach((date, dayIndex) => {
   if (!existsSync(file)) return;
   daysFound++;
   const day = JSON.parse(gunzipSync(readFileSync(file)));
-  const regionWide = new Map();
+  const groups = new Map();
   for (const [houseId, src] of Object.entries(day.houses)) {
-    const house = getHouse(Number(houseId), src.name);
-    for (const [itemId, [, med]] of Object.entries(src.items)) {
+    const entries = Object.entries(src.items);
+    if (entries.length === 0) continue;
+    const house = getHouse(Number(houseId), `${src.name} #${houseId}`);
+    if (!groups.has(src.name)) groups.set(src.name, new Map());
+    const group = groups.get(src.name);
+    for (const [itemId, [, med]] of entries) {
       setValue(house, Number(itemId), dayIndex, med);
-      if (!regionWide.has(itemId)) regionWide.set(itemId, []);
-      regionWide.get(itemId).push(med);
+      if (!group.has(itemId)) group.set(itemId, []);
+      group.get(itemId).push(med);
     }
   }
-  const all = getHouse('all', `All houses (${args.region.toUpperCase()})`);
-  for (const [itemId, meds] of regionWide) setValue(all, Number(itemId), dayIndex, median(meds));
+  for (const [name, items] of groups) {
+    const group = getHouse(`group:${name}`, `${name} (all)`);
+    for (const [itemId, meds] of items) setValue(group, Number(itemId), dayIndex, median(meds));
+  }
 });
 
 if (daysFound === 0) {

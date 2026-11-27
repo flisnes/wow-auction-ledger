@@ -1,6 +1,7 @@
 local DATA            -- AuctionLedger_Data, set on login
 local db              -- AuctionLedgerDB
-local houseKey        -- key into DATA.houses: a house id or "all"
+local houseKey        -- key into DATA.houses: a house id or "group:<house name>"
+local characterKey    -- "<realm>-<faction>", the key for the saved house choice
 local seriesCache = {}
 
 local GRAPH_WIDTH, GRAPH_HEIGHT = 360, 140
@@ -104,20 +105,21 @@ local function hookTooltips()
 	end
 end
 
--- Matches a house whose name contains both the realm and the faction. The
--- API's house names are not confirmed yet, so "all" is the fallback.
+-- The API does not say which house belongs to which realm, so the default is
+-- the group of all houses for the player's faction (for example
+-- "group:Alliance Auction House"). /ledger house pins an exact house.
 local function detectHouse()
-	local realm = (GetRealmName() or ""):lower()
 	local faction = (UnitFactionGroup("player") or ""):lower()
-	if realm ~= "" and faction ~= "" then
-		for key, house in pairs(DATA.houses) do
-			local name = (house.name or ""):lower()
-			if key ~= "all" and name:find(realm, 1, true) and name:find(faction, 1, true) then
+	local fallback
+	for key in pairs(DATA.houses) do
+		if type(key) == "string" and key:sub(1, 6) == "group:" then
+			if faction ~= "" and key:lower():find(faction, 1, true) then
 				return key
 			end
+			fallback = fallback or key
 		end
 	end
-	return "all"
+	return fallback or next(DATA.houses)
 end
 
 local function sortedHouses()
@@ -222,7 +224,7 @@ local function handleHouseCommand(arg)
 		end
 		say("/ledger house <number> selects a house, /ledger house auto detects it.")
 	elseif arg == "auto" then
-		db.house = nil
+		db.houses[characterKey] = nil
 		houseKey = detectHouse()
 		say("Using %s.", DATA.houses[houseKey].name)
 	else
@@ -231,7 +233,7 @@ local function handleHouseCommand(arg)
 			say("No house number %s. Type /ledger house to list them.", arg)
 			return
 		end
-		db.house = choice.key
+		db.houses[characterKey] = choice.key
 		houseKey = choice.key
 		say("Using %s.", choice.name)
 	end
@@ -264,6 +266,8 @@ events:RegisterEvent("PLAYER_LOGIN")
 events:SetScript("OnEvent", function()
 	AuctionLedgerDB = AuctionLedgerDB or {}
 	db = AuctionLedgerDB
+	db.houses = db.houses or {}
+	characterKey = (GetRealmName() or "?") .. "-" .. (UnitFactionGroup("player") or "?")
 	DATA = AuctionLedger_Data
 	if not DATA or not DATA.houses then
 		say("No price data loaded. Update the addon to get the latest release.")
@@ -272,8 +276,9 @@ events:SetScript("OnEvent", function()
 	if DATA.days[#DATA.days] < cutoffDay() then
 		say("The price data is more than %d days old and is hidden. Update the addon.", DATA.maxAgeDays or 30)
 	end
-	if db.house ~= nil and DATA.houses[db.house] then
-		houseKey = db.house
+	local saved = db.houses[characterKey]
+	if saved ~= nil and DATA.houses[saved] then
+		houseKey = saved
 	else
 		houseKey = detectHouse()
 	end
