@@ -18,14 +18,16 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGION: ${{ vars.REGION || 'eu' }}
+  # Repository variables: REGIONS (JSON array) to aggregate, ADDON_REGION for the addon release.
+  REGIONS: ${{ vars.REGIONS || '["eu","us","kr","tw"]' }}
+  ADDON_REGION: ${{ vars.ADDON_REGION || 'eu' }}
   GH_REPO: ${{ github.repository }}
   BACKFILL: ${{ inputs.backfill }}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -47,38 +49,22 @@ jobs:
             git worktree add --orphan -b data data
           fi
 
-      # Scans of days that already have an aggregate are skipped, unless this
-      # is a backfill. A skipped run is caught up by the next one.
-      - name: Download scans
+      # Per region: download the scans of days without an aggregate (all days
+      # on a backfill), aggregate them, and delete the scans to free disk space
+      # (a full backfill is about 5.7 GB). Regions that are no longer listed
+      # but still have daily files are included so their old days get deleted.
+      - name: Aggregate completed days and drop expired ones
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p scans
-          if ! release_id=$(gh api "repos/${GH_REPO}/releases/tags/scans" --jq .id 2>/dev/null); then
-            echo "No scans release yet"
-            exit 0
-          fi
-          today=$(date -u +%Y%m%d)
-          patterns=()
-          while read -r name; do
-            stamp=${name#scan-${REGION}-}
-            day=${stamp:0:8}
-            [ "$day" = "$today" ] && continue
-            daily="data/daily/${REGION}/${day:0:4}-${day:4:2}-${day:6:2}.json.gz"
-            [ "$BACKFILL" != true ] && [ -f "$daily" ] && continue
-            patterns+=(--pattern "$name")
-          done < <(gh api --paginate "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100" \
-            --jq ".[].name | select(startswith(\"scan-${REGION}-\"))")
-          if [ ${#patterns[@]} -gt 0 ]; then
-            gh release download scans --dir scans "${patterns[@]}"
-          fi
-          echo "$(( ${#patterns[@]} / 2 )) scans downloaded"
-
-      - name: Aggregate completed days and drop expired ones
-        run: |
           force=()
           if [ "$BACKFILL" = true ]; then force=(--force); fi
-          node collector/aggregate.mjs --region "$REGION" --scans scans --data data "${force[@]}"
+          regions=$( (jq -r '.[]' <<< "$REGIONS"; ls data/daily 2>/dev/null || true) | sort -u)
+          for region in $regions; do
+            bash .github/scripts/download-scans.sh "$region" scans
+            node collector/aggregate.mjs --region "$region" --scans scans --data data "${force[@]}"
+            rm -rf scans
+          done
 
       # The branch is replaced by one parentless commit, so days that left the
       # 30-day window do not remain in its history.
@@ -100,7 +86,7 @@ jobs:
 
       - name: Generate addon data
         id: lua
-        run: node collector/build-lua.mjs --region "$REGION" --data data --out addon/AuctionLedger/Data.lua
+        run: node collector/build-lua.mjs --region "$ADDON_REGION" --data data --out addon/AuctionLedger/Data.lua
 
       - name: Package addon
         if: steps.lua.outputs.built == 'true'
@@ -123,7 +109,7 @@ jobs:
           else
             gh release create "$tag" "$zip" --latest \
               --title "Price data ${VERSION}" \
-              --notes "Daily auction house medians and price statistics for the 29 days before ${VERSION}, region ${REGION}. Source: Blizzard Entertainment."
+              --notes "Daily auction house medians and price statistics for the 29 days before ${VERSION}, region ${ADDON_REGION}. Source: Blizzard Entertainment."
           fi
 
       - name: Delete scans older than 29 days

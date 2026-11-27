@@ -79,7 +79,7 @@ Four non-empty groups and four rulesets (PvP, Normal, RP, RP-PvP); the mapping i
 
 ## 3. Detailed 2-hour data for development
 
-Implemented: full scans are kept for 29 days as assets of the public `scans` release (see "Scans and backfill" in the README). About 7 MB per scan, 2.5 GB for 29 days.
+Implemented: full scans for all four regions are kept for 29 days as assets of the public `scans-<region>` releases (see "Scans and backfill" in the README). About 7 MB per EU or US scan, 5.7 GB in total for 29 days.
 
 - Anyone can download them. If that becomes a concern, move them to a separate private repository (for example `auction-ledger-data`) and upload there with a token. Release assets have no storage quota in either case; Actions artifacts do (500 MB on the free plan).
 - Use: time-of-day patterns, how quickly cheap listings sell (auction ids are kept), whether the addon would gain from more than one value per day, and random-suffix prices (bonus lists are kept).
@@ -102,3 +102,7 @@ Goal: players get the daily data through the CurseForge app or WowUp, with no sc
 6. Split into two projects: "Auction Ledger" (code, rare releases) and "Auction Ledger Data" (daily data releases, a dependency of the code addon). This keeps the code changelog readable.
 
 The GitHub release and `tools/update-addon.ps1` stay as a fallback.
+
+### Regions
+
+All four regions are collected and aggregated, but the release ships `ADDON_REGION` only. A player needs one region. Options: one zip per region in each release (`update-addon.ps1` gets a `-Region` parameter), or one data addon per region next to the code addon, which fits point 6 and per-house loading (section 2).

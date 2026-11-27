@@ -1,6 +1,6 @@
 # Auction Ledger
 
-Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 29 days to an in-game addon.
+Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices in all four API regions (EU, US, KR, TW) from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 29 days to an in-game addon.
 
 Data source: Blizzard Entertainment. This project is not affiliated with or endorsed by Blizzard Entertainment. See [PRIVACY.md](PRIVACY.md) for what is collected and how long it is kept.
 
@@ -8,18 +8,18 @@ Data source: Blizzard Entertainment. This project is not affiliated with or endo
 
 | Step | Where | Schedule |
 |---|---|---|
-| Fetch every auction house, upload the full scan to the `scans` release, delete scans older than 29 days | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
-| Reduce each scan to `[min, median, quantity]` per item, aggregate completed UTC days, delete days outside the window, replace the `data` branch with one commit | `.github/workflows/publish.yml` | daily at 00:47 UTC |
-| Generate `Data.lua` with daily series and price statistics, zip the addon, publish today's release, delete all older releases | same workflow | daily |
+| Fetch every auction house, one parallel job per region, upload the full scan to the region's `scans-<region>` release, delete scans older than 29 days | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
+| Per region, reduce each scan to `[min, median, quantity]` per item, aggregate completed UTC days, delete days outside the window, replace the `data` branch with one commit | `.github/workflows/publish.yml` | daily at 00:47 UTC |
+| Generate `Data.lua` for `ADDON_REGION` (default EU) with daily series and price statistics, zip the addon, publish today's release, delete all older releases | same workflow | daily |
 | Run the collector unit tests | `.github/workflows/test.yml` | on push and pull request |
 
 Prices are in copper per unit. The daily value per item is the median of the scan medians, and the median within a scan is weighted by quantity.
 
 ## Scans and backfill
 
-Each collection run stores the full scan as an asset of the `scans` pre-release: every listing with auction id, item id, bonus lists and modifiers, buyout, bid, quantity and time left (format in `collector/lib/scan.mjs`). A scan is about 7 MB gzipped, about 2.5 GB for 29 days. Release assets have no total size limit; Actions artifacts would count against a 500 MB quota on the free plan.
+Each collection run stores one full scan per region as an asset of the `scans-<region>` pre-release: every listing with auction id, item id, bonus lists and modifiers, buyout, bid, quantity and time left (format in `collector/lib/scan.mjs`). An EU or US scan is about 7 MB gzipped, a KR or TW scan about 1 MB; all regions together come to about 5.7 GB for 29 days. Release assets have no total size limit; Actions artifacts would count against a 500 MB quota on the free plan. A release holds at most 1000 assets, so each region has its own (about 350 scans each).
 
-After a change to how scans are reduced or aggregated, run "Publish daily data and addon release" manually with **backfill** checked. It rebuilds every daily aggregate that still has scans. The oldest window day can miss its first scans, since scans are deleted 29 days after collection.
+After a change to how scans are reduced or aggregated, run "Publish daily data and addon release" manually with **backfill** checked. It rebuilds every daily aggregate, in every region, that still has scans. The oldest window day can miss its first scans, since scans are deleted 29 days after collection.
 
 ## Price statistics
 
@@ -54,7 +54,7 @@ The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a
 - Daily aggregates older than the window are deleted, and the `data` branch is rewritten as a single commit, so its history holds no older days.
 - Only the release published today is kept.
 - The addon hides any day older than 30 days by the player's clock, so an outdated install stops showing expired data.
-- Full scans are deleted from the `scans` release 29 days after collection, by both workflows.
+- Full scans are deleted from every `scans-<region>` release 29 days after collection, by both workflows, including regions that are no longer collected.
 
 ## Setup
 
@@ -62,7 +62,7 @@ The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a
 2. Copy `.env.example` to `.env` and fill in the two values.
 3. Run `npm run probe` (Node 22 or later) and check the output against the items under "To verify".
 4. Push the repository to GitHub and add the repository secrets `BNET_CLIENT_ID` and `BNET_CLIENT_SECRET`.
-5. Optional repository variable: `REGION` (default `eu`).
+5. Optional repository variables: `REGIONS`, a JSON array of regions to collect and aggregate (default `["eu","us","kr","tw"]`), and `ADDON_REGION`, the region packaged in the addon release (default `eu`).
 6. Run "Collect auction scan" manually once to confirm it works. The first release appears the day after the first full UTC day of collection.
 
 ## Installing the addon

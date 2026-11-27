@@ -9,7 +9,7 @@ Public auction house listings for World of Warcraft: Forever: auction id, item i
 ## What is stored and published
 
 - Per item and auction house: the lowest price, the typical lowest price, the median price and the listed quantity for each day, and statistics derived from these over the 29-day window.
-- Full scans (every listing, with the fields above) are kept as assets of the `scans` release for 29 days.
+- Full scans (every listing, with the fields above) are kept as assets of the `scans-<region>` releases for 29 days.
 - Daily aggregates are kept for 30 days on the `data` branch and in the current addon release, then deleted.
 
 ## Who receives it
