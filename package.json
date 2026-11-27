@@ -1,0 +1,16 @@
+{
+  "name": "forever-ah-history",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Auction house price history for WoW Forever, collected from the Battle.net API.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "probe": "node collector/probe.mjs",
+    "collect": "node collector/collect.mjs",
+    "aggregate": "node collector/aggregate.mjs",
+    "build-lua": "node collector/build-lua.mjs"
+  }
+}

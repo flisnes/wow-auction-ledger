@@ -1,0 +1,113 @@
+name: Publish daily data and addon release
+
+on:
+  schedule:
+    - cron: '47 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  REGION: ${{ vars.REGION || 'eu' }}
+  HISTORY_DAYS: ${{ vars.HISTORY_DAYS || '30' }}
+  KEEP_RELEASES: 7
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Daily aggregates live on the orphan "data" branch so main stays code only.
+      - name: Check out data branch
+        run: |
+          if git fetch --depth=1 origin data:data; then
+            git worktree add data data
+          else
+            git worktree add --orphan -b data data
+          fi
+
+      # Artifacts expire after 4 days, so a skipped publish run is caught up by the next one.
+      - name: Download snapshot artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p snapshots
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | select(.name | startswith("snapshot-")) | "\(.id) \(.name)"' |
+          while read -r id name; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "snapshots/${name}.zip"
+            unzip -o -q "snapshots/${name}.zip" -d snapshots
+            rm "snapshots/${name}.zip"
+          done
+          echo "$(find snapshots -name '*.json.gz' | wc -l) snapshots downloaded"
+
+      - name: Aggregate completed days
+        run: node collector/aggregate.mjs --region "$REGION" --snapshots snapshots --data data
+
+      - name: Commit daily aggregates
+        working-directory: data
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No new days to commit"
+          else
+            git commit -q -m "Add daily aggregates up to $(date -u -d yesterday +%F)"
+            git push origin data
+          fi
+
+      - name: Generate addon data
+        id: lua
+        run: node collector/build-lua.mjs --region "$REGION" --data data --days "$HISTORY_DAYS" --out addon/ForeverAHHistory/Data.lua
+
+      - name: Package addon
+        if: steps.lua.outputs.latest != ''
+        env:
+          VERSION: ${{ steps.lua.outputs.latest }}
+        run: |
+          sed -i "s/@version@/${VERSION}/" addon/ForeverAHHistory/ForeverAHHistory.toc
+          mkdir -p dist
+          (cd addon && zip -q -r "../dist/ForeverAHHistory-${VERSION}.zip" ForeverAHHistory)
+
+      - name: Publish release
+        if: steps.lua.outputs.latest != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.lua.outputs.latest }}
+        run: |
+          tag="data-${VERSION}"
+          zip="dist/ForeverAHHistory-${VERSION}.zip"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" "$zip" --clobber
+          else
+            gh release create "$tag" "$zip" --latest \
+              --title "Price data ${VERSION}" \
+              --notes "Daily auction house medians up to ${VERSION}, region ${REGION}."
+          fi
+
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[].tagName' |
+            grep '^data-' | tail -n +$((KEEP_RELEASES + 1)) |
+            while read -r tag; do
+              gh release delete "$tag" --yes --cleanup-tag
+            done
