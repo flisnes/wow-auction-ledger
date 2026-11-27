@@ -15,8 +15,6 @@ concurrency:
 
 env:
   REGION: ${{ vars.REGION || 'eu' }}
-  HISTORY_DAYS: ${{ vars.HISTORY_DAYS || '30' }}
-  KEEP_RELEASES: 7
 
 jobs:
   publish:
@@ -58,56 +56,65 @@ jobs:
           done
           echo "$(find snapshots -name '*.json.gz' | wc -l) snapshots downloaded"
 
-      - name: Aggregate completed days
+      - name: Aggregate completed days and drop expired ones
         run: node collector/aggregate.mjs --region "$REGION" --snapshots snapshots --data data
 
-      - name: Commit daily aggregates
+      # The branch is replaced by one parentless commit, so days that left the
+      # 30-day window do not remain in its history.
+      - name: Replace data branch with the current window
         working-directory: data
         run: |
           git add -A
-          if git diff --cached --quiet; then
-            echo "No new days to commit"
-          else
-            git commit -q -m "Add daily aggregates up to $(date -u -d yesterday +%F)"
-            git push origin data
+          if [ -z "$(git ls-files)" ]; then
+            echo "No daily aggregates yet"
+            exit 0
           fi
+          tree=$(git write-tree)
+          if git rev-parse -q --verify HEAD > /dev/null && [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ]; then
+            echo "No changes"
+            exit 0
+          fi
+          commit=$(git commit-tree "$tree" -m "Daily aggregates as of $(date -u +%F)")
+          git push --force origin "${commit}:refs/heads/data"
 
       - name: Generate addon data
         id: lua
-        run: node collector/build-lua.mjs --region "$REGION" --data data --days "$HISTORY_DAYS" --out addon/ForeverAHHistory/Data.lua
+        run: node collector/build-lua.mjs --region "$REGION" --data data --out addon/AuctionLedger/Data.lua
 
       - name: Package addon
-        if: steps.lua.outputs.latest != ''
-        env:
-          VERSION: ${{ steps.lua.outputs.latest }}
+        if: steps.lua.outputs.built == 'true'
         run: |
-          sed -i "s/@version@/${VERSION}/" addon/ForeverAHHistory/ForeverAHHistory.toc
+          version=$(date -u +%F)
+          sed -i "s/@version@/${version}/" addon/AuctionLedger/AuctionLedger.toc
           mkdir -p dist
-          (cd addon && zip -q -r "../dist/ForeverAHHistory-${VERSION}.zip" ForeverAHHistory)
+          (cd addon && zip -q -r "../dist/AuctionLedger-${version}.zip" AuctionLedger)
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Publish release
-        if: steps.lua.outputs.latest != ''
+        if: steps.lua.outputs.built == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.lua.outputs.latest }}
         run: |
           tag="data-${VERSION}"
-          zip="dist/ForeverAHHistory-${VERSION}.zip"
+          zip="dist/AuctionLedger-${VERSION}.zip"
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" "$zip" --clobber
           else
             gh release create "$tag" "$zip" --latest \
               --title "Price data ${VERSION}" \
-              --notes "Daily auction house medians up to ${VERSION}, region ${REGION}."
+              --notes "Daily auction house medians for the 29 days before ${VERSION}, region ${REGION}. Source: Blizzard Entertainment."
           fi
 
-      - name: Prune old releases
+      # Only today's release is kept, so no published release holds data older
+      # than 30 days. If nothing was built today, every older release is removed.
+      - name: Remove older releases
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release list --limit 100 --json tagName,createdAt \
-            --jq 'sort_by(.createdAt) | reverse | .[].tagName' |
-            grep '^data-' | tail -n +$((KEEP_RELEASES + 1)) |
+          today="data-$(date -u +%F)"
+          gh release list --limit 100 --json tagName --jq '.[].tagName' |
+            grep '^data-' | grep -vx "$today" |
             while read -r tag; do
               gh release delete "$tag" --yes --cleanup-tag
             done

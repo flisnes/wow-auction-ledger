@@ -1,14 +1,13 @@
-local ADDON_NAME = ...
-
-local DATA            -- ForeverAHHistory_Data, set on login
-local db              -- ForeverAHHistoryDB
+local DATA            -- AuctionLedger_Data, set on login
+local db              -- AuctionLedgerDB
 local houseKey        -- key into DATA.houses: a house id or "all"
 local seriesCache = {}
 
 local GRAPH_WIDTH, GRAPH_HEIGHT = 360, 140
+local SOURCE_TEXT = "Source: Blizzard Entertainment. Not affiliated with or endorsed by Blizzard."
 
 local function say(fmt, ...)
-	print("|cffe6c34dForeverAH|r: " .. format(fmt, ...))
+	print("|cffe6c34dAuction Ledger|r: " .. format(fmt, ...))
 end
 
 local function formatMoney(copper)
@@ -22,12 +21,21 @@ local function formatMoney(copper)
 	return format("%dc", cop)
 end
 
+-- Days before this date (UTC, YYYY-MM-DD) are not shown, so an addon that has
+-- not been updated stops displaying data older than the API terms allow.
+local function cutoffDay()
+	return date("!%Y-%m-%d", time() - (DATA.maxAgeDays or 30) * 86400)
+end
+
 -- "120,,130" -> { 120, nil, 130 }, 3. Empty fields are days without listings.
 local function parseSeries(raw)
 	local values, n = {}, 0
+	local cutoff = cutoffDay()
 	for field in (raw .. ","):gmatch("([^,]*),") do
 		n = n + 1
-		values[n] = tonumber(field)
+		if DATA.days[n] and DATA.days[n] >= cutoff then
+			values[n] = tonumber(field)
+		end
 	end
 	return values, n
 end
@@ -72,11 +80,12 @@ local function addTooltipLines(tooltip, itemId)
 	if not last then return end
 
 	local avg7, avgAll = average(entry, entry.n - 6), average(entry, 1)
-	tooltip:AddDoubleLine("AH median " .. DATA.days[lastIndex], formatMoney(last), 0.9, 0.76, 0.3, 1, 1, 1)
+	tooltip:AddLine("Auction Ledger (source: Blizzard)", 0.5, 0.5, 0.5)
+	tooltip:AddDoubleLine("Median " .. DATA.days[lastIndex], formatMoney(last), 0.9, 0.76, 0.3, 1, 1, 1)
 	if avg7 then
-		tooltip:AddDoubleLine("AH 7-day average", formatMoney(avg7), 0.9, 0.76, 0.3, 1, 1, 1)
+		tooltip:AddDoubleLine("7-day average", formatMoney(avg7), 0.9, 0.76, 0.3, 1, 1, 1)
 	end
-	tooltip:AddDoubleLine(format("AH %d-day average", entry.n), formatMoney(avgAll), 0.9, 0.76, 0.3, 1, 1, 1)
+	tooltip:AddDoubleLine(format("%d-day average", entry.n), formatMoney(avgAll), 0.9, 0.76, 0.3, 1, 1, 1)
 end
 
 local function hookTooltips()
@@ -123,8 +132,8 @@ end
 local graph
 
 local function createGraph()
-	local f = CreateFrame("Frame", "ForeverAHHistoryGraph", UIParent, "BasicFrameTemplateWithInset")
-	f:SetSize(GRAPH_WIDTH + 40, GRAPH_HEIGHT + 90)
+	local f = CreateFrame("Frame", "AuctionLedgerGraph", UIParent, "BasicFrameTemplateWithInset")
+	f:SetSize(GRAPH_WIDTH + 40, GRAPH_HEIGHT + 100)
 	f:SetPoint("CENTER")
 	f:SetFrameStrata("DIALOG")
 	f:SetMovable(true)
@@ -132,16 +141,19 @@ local function createGraph()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
-	table.insert(UISpecialFrames, "ForeverAHHistoryGraph")
+	table.insert(UISpecialFrames, "AuctionLedgerGraph")
 
 	f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	f.title:SetPoint("TOP", 0, -5)
 	f.maxLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	f.maxLabel:SetPoint("TOPLEFT", 20, -32)
 	f.firstLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	f.firstLabel:SetPoint("BOTTOMLEFT", 20, 16)
+	f.firstLabel:SetPoint("BOTTOMLEFT", 20, 30)
 	f.lastLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	f.lastLabel:SetPoint("BOTTOMRIGHT", -20, 16)
+	f.lastLabel:SetPoint("BOTTOMRIGHT", -20, 30)
+	f.source = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	f.source:SetPoint("BOTTOM", 0, 12)
+	f.source:SetText(SOURCE_TEXT)
 	f.bars = {}
 	return f
 end
@@ -149,7 +161,7 @@ end
 local function onBarEnter(bar)
 	GameTooltip:SetOwner(bar, "ANCHOR_TOP")
 	GameTooltip:AddLine(bar.day)
-	GameTooltip:AddLine(bar.value and formatMoney(bar.value) or "No listings", 1, 1, 1)
+	GameTooltip:AddLine(bar.value and formatMoney(bar.value) or "No data", 1, 1, 1)
 	GameTooltip:Show()
 end
 
@@ -182,7 +194,7 @@ local function showGraph(itemId)
 		local v = entry.values[i]
 		bar.day, bar.value = DATA.days[i], v
 		bar:ClearAllPoints()
-		bar:SetPoint("BOTTOMLEFT", graph, "BOTTOMLEFT", 20 + (i - 1) * slot, 36)
+		bar:SetPoint("BOTTOMLEFT", graph, "BOTTOMLEFT", 20 + (i - 1) * slot, 46)
 		bar:SetSize(math.max(slot - 2, 1), v and math.max(GRAPH_HEIGHT * v / maxValue, 1) or 2)
 		if v then
 			bar.texture:SetColorTexture(0.9, 0.76, 0.3, 0.9)
@@ -208,7 +220,7 @@ local function handleHouseCommand(arg)
 		for i, house in ipairs(list) do
 			say("%d. %s%s", i, house.name, house.key == houseKey and " (active)" or "")
 		end
-		say("/fah house <number> selects a house, /fah house auto detects it.")
+		say("/ledger house <number> selects a house, /ledger house auto detects it.")
 	elseif arg == "auto" then
 		db.house = nil
 		houseKey = detectHouse()
@@ -216,7 +228,7 @@ local function handleHouseCommand(arg)
 	else
 		local choice = list[tonumber(arg) or 0]
 		if not choice then
-			say("No house number %s. Type /fah house to list them.", arg)
+			say("No house number %s. Type /ledger house to list them.", arg)
 			return
 		end
 		db.house = choice.key
@@ -225,8 +237,8 @@ local function handleHouseCommand(arg)
 	end
 end
 
-SLASH_FOREVERAHHISTORY1 = "/fah"
-SlashCmdList.FOREVERAHHISTORY = function(msg)
+SLASH_AUCTIONLEDGER1 = "/ledger"
+SlashCmdList.AUCTIONLEDGER = function(msg)
 	msg = strtrim(msg or "")
 	if not DATA then
 		say("This build contains no price data.")
@@ -243,18 +255,22 @@ SlashCmdList.FOREVERAHHISTORY = function(msg)
 		return
 	end
 	say("Data %s to %s, house: %s.", DATA.days[1], DATA.days[#DATA.days], DATA.houses[houseKey].name)
-	say("/fah <item link or id> shows a price graph. /fah house lists auction houses.")
+	say("/ledger <item link or id> shows a price graph. /ledger house lists auction houses.")
+	say(SOURCE_TEXT)
 end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:SetScript("OnEvent", function()
-	ForeverAHHistoryDB = ForeverAHHistoryDB or {}
-	db = ForeverAHHistoryDB
-	DATA = ForeverAHHistory_Data
+	AuctionLedgerDB = AuctionLedgerDB or {}
+	db = AuctionLedgerDB
+	DATA = AuctionLedger_Data
 	if not DATA or not DATA.houses then
 		say("No price data loaded. Update the addon to get the latest release.")
 		return
+	end
+	if DATA.days[#DATA.days] < cutoffDay() then
+		say("The price data is more than %d days old and is hidden. Update the addon.", DATA.maxAgeDays or 30)
 	end
 	if db.house ~= nil and DATA.houses[db.house] then
 		houseKey = db.house

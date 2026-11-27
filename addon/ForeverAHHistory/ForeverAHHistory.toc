@@ -1,8 +1,0 @@
-## Interface: 16001
-## Title: Forever AH History
-## Notes: Daily auction house median prices, collected from the Battle.net API.
-## Version: @version@
-## SavedVariables: ForeverAHHistoryDB
-
-Data.lua
-ForeverAHHistory.lua

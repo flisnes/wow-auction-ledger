@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: Auction Ledger
+## Notes: Daily auction house median prices. Data source: Blizzard Entertainment. Not affiliated with or endorsed by Blizzard.
+## Version: @version@
+## SavedVariables: AuctionLedgerDB
+
+Data.lua
+AuctionLedger.lua

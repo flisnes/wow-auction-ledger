@@ -1,18 +1,29 @@
-# Forever AH History
+# Auction Ledger
 
-Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 30 days to an in-game addon.
+Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 29 days to an in-game addon.
+
+Data source: Blizzard Entertainment. This project is not affiliated with or endorsed by Blizzard Entertainment. See [PRIVACY.md](PRIVACY.md) for what is collected and how long it is kept.
 
 ## How it works
 
 | Step | Where | Schedule |
 |---|---|---|
 | Fetch every auction house, reduce to `[min, median, quantity]` per item, upload as an artifact (kept 4 days) | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
-| Aggregate completed UTC days, commit them to the `data` branch | `.github/workflows/publish.yml` | daily at 00:47 UTC |
-| Generate `Data.lua`, zip the addon, publish a GitHub Release (last 7 kept) | same workflow | daily |
+| Aggregate completed UTC days, delete days outside the window, replace the `data` branch with one commit | `.github/workflows/publish.yml` | daily at 00:47 UTC |
+| Generate `Data.lua`, zip the addon, publish today's release, delete all older releases | same workflow | daily |
 
 Prices are in copper per unit. The daily value per item is the median of the snapshot medians, and the median within a snapshot is weighted by quantity.
 
 Forever lists auction houses under rulesets instead of connected realms (`dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{houseId}` plus `/commodities`). This comes from community testing, not Blizzard documentation.
+
+## Data retention
+
+The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a2989b50-5f16-43b1-abec-2ae17cc09dd6/blizzard-developer-api-terms-of-use), section 2(t), limit retention of API data to 30 days. This project keeps the 29 complete UTC days before today (`collector/lib/retention.mjs`):
+
+- Daily aggregates older than the window are deleted, and the `data` branch is rewritten as a single commit, so its history holds no older days.
+- Only the release published today is kept.
+- The addon hides any day older than 30 days by the player's clock, so an outdated install stops showing expired data.
+- Raw snapshots exist only as workflow artifacts, which expire after 4 days.
 
 ## Setup
 
@@ -20,7 +31,7 @@ Forever lists auction houses under rulesets instead of connected realms (`dynami
 2. Copy `.env.example` to `.env` and fill in the two values.
 3. Run `npm run probe` (Node 22 or later) and check the output against the items under "To verify".
 4. Push the repository to GitHub and add the repository secrets `BNET_CLIENT_ID` and `BNET_CLIENT_SECRET`.
-5. Optional repository variables: `REGION` (default `eu`), `HISTORY_DAYS` (default `30`).
+5. Optional repository variable: `REGION` (default `eu`).
 6. Run "Collect auction snapshot" manually once to confirm it works. The first release appears the day after the first full UTC day of collection.
 
 ## Installing the addon
@@ -35,9 +46,9 @@ The script and release downloads need the repository to be public, or friends ne
 
 In game:
 
-- Item tooltips show the latest daily median and the 7-day and 30-day averages.
-- `/fah <item link or id>` opens a bar graph of the daily medians.
-- `/fah house` lists auction houses, `/fah house <n>` selects one, `/fah house auto` detects it from realm and faction. When no house matches, the region-wide median (`All houses`) is used.
+- Item tooltips show the latest daily median and the 7-day and 29-day averages.
+- `/ledger <item link or id>` opens a bar graph of the daily medians.
+- `/ledger house` lists auction houses, `/ledger house <n>` selects one, `/ledger house auto` detects it from realm and faction. When no house matches, the region-wide median (`All houses`) is used.
 
 ## To verify
 
@@ -52,10 +63,10 @@ In game:
 npm run probe                                    # inspect the live API
 npm run collect -- --region eu --out out         # one snapshot to out/
 npm run aggregate -- --snapshots out --data data # aggregate completed days
-npm run build-lua -- --data data                 # write addon/ForeverAHHistory/Data.lua
+npm run build-lua -- --data data                 # write addon/AuctionLedger/Data.lua
 ```
 
 ## Limits
 
 - GitHub may delay scheduled runs or skip them under load. A skipped collect run leaves a two-hour gap. A skipped publish run is caught up the next day, since artifacts are kept for 4 days.
-- GitHub disables scheduled workflows in public repositories after 60 days without activity. The daily commits to `data` should prevent this, but check the Actions tab if releases stop.
+- GitHub disables scheduled workflows in public repositories after 60 days without activity. The daily pushes to `data` should prevent this, but check the Actions tab if releases stop.

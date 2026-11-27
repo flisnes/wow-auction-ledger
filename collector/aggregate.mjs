@@ -2,10 +2,12 @@
 // <data>/daily/<region>/<YYYY-MM-DD>.json.gz with, per house and item,
 // [minUnit, medianOfMedians, meanQuantity, samples]. Days that already have a
 // file are skipped unless --force is given. Today is skipped as incomplete.
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+// Daily files older than the retention window are deleted.
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { oldestKeptDay, utcToday } from './lib/retention.mjs';
 import { median } from './lib/stats.mjs';
 
 const { values: args } = parseArgs({
@@ -17,7 +19,8 @@ const { values: args } = parseArgs({
   },
 });
 
-const today = new Date().toISOString().slice(0, 10);
+const today = utcToday();
+const oldest = oldestKeptDay();
 const byDay = new Map();
 const files = existsSync(args.snapshots)
   ? readdirSync(args.snapshots, { recursive: true }).filter((f) => f.endsWith('.json.gz'))
@@ -27,7 +30,7 @@ for (const f of files) {
   const snap = JSON.parse(gunzipSync(readFileSync(join(args.snapshots, f))));
   if (snap.region !== args.region) continue;
   const day = snap.ts.slice(0, 10);
-  if (day >= today) continue;
+  if (day >= today || day < oldest) continue;
   if (!byDay.has(day)) byDay.set(day, []);
   byDay.get(day).push(snap);
 }
@@ -40,6 +43,13 @@ for (const [day, snaps] of [...byDay].sort()) {
   if (existsSync(file) && !args.force) continue;
   writeFileSync(file, gzipSync(JSON.stringify(aggregateDay(day, snaps))));
   console.log(`${day}: ${snaps.length} snapshots -> ${file}`);
+}
+
+for (const f of readdirSync(outDir)) {
+  if (f.endsWith('.json.gz') && f.slice(0, 10) < oldest) {
+    rmSync(join(outDir, f));
+    console.log(`${f.slice(0, 10)}: older than the retention window, deleted`);
+  }
 }
 
 function aggregateDay(day, snaps) {
