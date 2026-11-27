@@ -30,6 +30,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      site: ${{ steps.site.outcome }}
     steps:
       - uses: actions/checkout@v4
 
@@ -114,6 +116,30 @@ jobs:
               --notes "Daily auction house medians and price statistics for the 29 days before ${VERSION}, region ${ADDON_REGION}. Source: Blizzard Entertainment."
           fi
 
+      # The website steps run even if the addon steps failed: each deploy
+      # replaces the whole site, which is what drops days that left the window.
+      # Item names and icons are fetched on every run and not stored. Without
+      # them the site shows item ids, so a failed fetch does not stop the deploy.
+      - name: Fetch item names and icons
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          BNET_CLIENT_ID: ${{ secrets.BNET_CLIENT_ID }}
+          BNET_CLIENT_SECRET: ${{ secrets.BNET_CLIENT_SECRET }}
+        run: node collector/fetch-catalog.mjs --region "$ADDON_REGION" --out out/catalog.json.gz
+
+      - name: Build website
+        if: ${{ !cancelled() }}
+        run: node collector/build-site.mjs --data data --catalog out/catalog.json.gz --out _site
+
+      - name: Upload website
+        id: site
+        if: ${{ !cancelled() }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          retention-days: 1
+
       - name: Delete scans older than 29 days
         if: always()
         env:
@@ -134,3 +160,21 @@ jobs:
             while read -r tag; do
               gh release delete "$tag" --yes --cleanup-tag
             done
+
+  # Deploys the site built by the publish job to GitHub Pages
+  # (Settings > Pages > Source: GitHub Actions).
+  pages:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.outputs.site == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy website
+        id: deploy
+        uses: actions/deploy-pages@v5

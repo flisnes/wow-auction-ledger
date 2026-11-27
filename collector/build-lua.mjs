@@ -9,16 +9,14 @@
 // median ("median.*") and the daily typical lowest listing ("low.*"). Items
 // with fewer than MIN_DAYS days have no stats entry.
 //
-// House names are not unique (each ruleset group has its own "Alliance
-// Auction House"), so each house is labelled with its id. Houses sharing a
-// name are also combined into a group keyed "group:<name>": per day, the
-// median across those houses. Empty houses are left out.
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+// Houses are labelled with their id, since names are not unique, and groups
+// (lib/window.mjs) with "(all)".
+import { appendFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { gunzipSync } from 'node:zlib';
 import { RETENTION_DAYS, windowDays } from './lib/retention.mjs';
 import { median } from './lib/stats.mjs';
+import { loadWindow } from './lib/window.mjs';
 import { MIN_DAYS, SERIES_FIELDS, formatStats, seriesStats } from './lib/window-stats.mjs';
 
 const { values: args } = parseArgs({
@@ -29,57 +27,12 @@ const { values: args } = parseArgs({
   },
 });
 
-const SERIES = ['median', 'low', 'qty'];
 const STAT_FIELDS = ['days', 'quantity',
   ...SERIES_FIELDS.map((f) => `median.${f}`), ...SERIES_FIELDS.map((f) => `low.${f}`)];
 
 const dir = join(args.data, 'daily', args.region);
 const dates = windowDays();
-const numDays = dates.length;
-
-const houses = new Map();
-const getHouse = (key, name) => {
-  if (!houses.has(key)) houses.set(key, { name, items: new Map() });
-  const house = houses.get(key);
-  house.name = name;
-  return house;
-};
-const setValues = (house, itemId, dayIndex, values) => {
-  if (!house.items.has(itemId)) {
-    house.items.set(itemId, Object.fromEntries(SERIES.map((s) => [s, new Array(numDays).fill(null)])));
-  }
-  const item = house.items.get(itemId);
-  for (const s of SERIES) item[s][dayIndex] = values[s];
-};
-
-let daysFound = 0;
-dates.forEach((date, dayIndex) => {
-  const file = join(dir, `${date}.json.gz`);
-  if (!existsSync(file)) return;
-  daysFound++;
-  const day = JSON.parse(gunzipSync(readFileSync(file)));
-  const groups = new Map();
-  for (const [houseId, src] of Object.entries(day.houses)) {
-    const entries = Object.entries(src.items);
-    if (entries.length === 0) continue;
-    const house = getHouse(Number(houseId), `${src.name} #${houseId}`);
-    if (!groups.has(src.name)) groups.set(src.name, new Map());
-    const group = groups.get(src.name);
-    for (const [itemId, [, med, qty, , low = null]] of entries) {
-      const values = { median: med, low, qty };
-      setValues(house, Number(itemId), dayIndex, values);
-      if (!group.has(itemId)) group.set(itemId, Object.fromEntries(SERIES.map((s) => [s, []])));
-      const lists = group.get(itemId);
-      for (const s of SERIES) if (values[s] != null) lists[s].push(values[s]);
-    }
-  }
-  for (const [name, items] of groups) {
-    const group = getHouse(`group:${name}`, `${name} (all)`);
-    for (const [itemId, lists] of items) {
-      setValues(group, Number(itemId), dayIndex, Object.fromEntries(SERIES.map((s) => [s, median(lists[s])])));
-    }
-  }
-});
+const { houses, daysFound } = loadWindow(dir, dates);
 
 if (daysFound === 0) {
   console.log(`No daily aggregates in ${dir} between ${dates[0]} and ${dates.at(-1)}. Nothing to build.`);
@@ -105,7 +58,8 @@ let statCount = 0;
 for (const [key, house] of houses) {
   const luaKey = typeof key === 'number' ? key : luaString(key);
   const items = [...house.items].sort((a, b) => a[0] - b[0]);
-  lines.push(`do local function load() H[${luaKey}] = { name = ${luaString(house.name)}, items = {`);
+  const label = house.id == null ? `${house.name} (all)` : `${house.name} #${house.id}`;
+  lines.push(`do local function load() H[${luaKey}] = { name = ${luaString(label)}, items = {`);
   for (const [itemId, series] of items) {
     lines.push(`[${itemId}]="${series.median.map((v) => v ?? '').join(',')}",`);
   }

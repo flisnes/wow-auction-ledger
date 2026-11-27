@@ -1,6 +1,6 @@
 # Auction Ledger
 
-Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices in all four API regions (EU, US, KR, TW) from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 29 days to an in-game addon.
+Auction house price history for World of Warcraft: Forever. GitHub Actions collects prices in all four API regions (EU, US, KR, TW) from the Battle.net Game Data API every two hours, whether or not anyone is playing. A daily release ships the last 29 days to an in-game addon, and a GitHub Pages website shows the same window for every region.
 
 Data source: Blizzard Entertainment. This project is not affiliated with or endorsed by Blizzard Entertainment. See [PRIVACY.md](PRIVACY.md) for what is collected and how long it is kept.
 
@@ -11,6 +11,7 @@ Data source: Blizzard Entertainment. This project is not affiliated with or endo
 | Fetch every auction house, one parallel job per region, upload the full scan to the region's `scans-<region>` release in the private data repository, delete scans older than 29 days | `.github/workflows/collect.yml` | every 2 hours at :17 UTC |
 | Per region, reduce each scan to `[min, median, quantity]` per item, aggregate completed UTC days, delete days outside the window, replace the `data` branch with one commit | `.github/workflows/publish.yml` | daily at 00:47 UTC |
 | Generate `Data.lua` for `ADDON_REGION` (default EU) with daily series and price statistics, zip the addon, publish today's release, delete all older releases | same workflow | daily |
+| Fetch item names and icons, build the website for every region, deploy it to GitHub Pages | same workflow | daily |
 | Run the collector unit tests | `.github/workflows/test.yml` | on push and pull request |
 
 Prices are in copper per unit. The daily value per item is the median of the scan medians, and the median within a scan is weighted by quantity.
@@ -47,6 +48,22 @@ To drop a statistic, remove it from `SERIES_FIELDS`. The addon looks fields up b
 
 Forever lists auction houses under rulesets instead of connected realms (`dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{houseId}` plus `/commodities`). This comes from community testing, not Blizzard documentation.
 
+## Website
+
+`collector/build-site.mjs` copies `site/` (plain HTML, CSS and JavaScript, no build step) and writes JSON for every region with data in the window. The page lists the items of one auction house with the latest daily median, the 29-day median and the typical lowest listing, and filters them by name, item id, quality and type. Selecting an item shows its daily chart, a verdict (robust z-score and percentile rank of the latest day, as in `docs/ideas.md`), the trend, and its prices in the other houses. The URL hash holds the selection (`#eu/113/2589`), so links can be shared.
+
+| File | Content |
+|---|---|
+| `data/regions.json` | regions, icon URL base, build time |
+| `data/<region>/meta.json` | window days, houses, item classes |
+| `data/<region>/items.json` | name, local name (KR, TW), quality, type and icon per listed item |
+| `data/<region>/houses/<key>.json` | one summary row per item listed in that house, for the item list |
+| `data/<region>/series/<n>.json` | daily series of every house for item ids with `id % 256 = n`, loaded when an item is opened |
+
+All four regions come to about 120 MB in about 1,100 files (29 MB gzipped).
+
+Item names come from the item search endpoint (`collector/lib/catalog.mjs`). `static-forever` lacks most original items, so `static-classic1x` (Classic Era) fills the gaps. About 4% of listed items, mostly ids above 250000, are in neither and are shown by id. The catalog takes about 50 requests and is fetched again on every run, so names are never stored. Icons load from Blizzard's render server.
+
 ## Data retention
 
 The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a2989b50-5f16-43b1-abec-2ae17cc09dd6/blizzard-developer-api-terms-of-use), section 2(t), limit retention of API data to 30 days. This project keeps the 29 complete UTC days before today (`collector/lib/retention.mjs`):
@@ -55,6 +72,7 @@ The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a
 - Only the release published today is kept.
 - The addon hides any day older than 30 days by the player's clock, so an outdated install stops showing expired data.
 - Full scans are deleted from every `scans-<region>` release 29 days after collection, by both workflows, including regions that are no longer collected.
+- Each daily run replaces the whole website. Deploy artifacts expire after one day. The page hides any day older than 30 days by the viewer's clock, as the addon does, so the site shows no expired days if the daily run stops.
 
 ## Setup
 
@@ -64,7 +82,8 @@ The [Blizzard Developer API Terms of Use](https://www.blizzard.com/en-us/legal/a
 4. Push the repository to GitHub and add the repository secrets `BNET_CLIENT_ID` and `BNET_CLIENT_SECRET`.
 5. Create a private repository `<owner>/auction-ledger-data` with at least one commit. Create a fine-grained personal access token with access to that repository only and the repository permission Contents: Read and write. Add it to this repository as the secret `DATA_REPO_TOKEN`. The token expires; renew it before then, or collection stops.
 6. Optional repository variables: `DATA_REPO` (default `<owner>/auction-ledger-data`), `REGIONS`, a JSON array of regions to collect and aggregate (default `["eu","us","kr","tw"]`), and `ADDON_REGION`, the region packaged in the addon release (default `eu`).
-7. Run "Collect auction scan" manually once to confirm it works. The first release appears the day after the first full UTC day of collection.
+7. Under Settings > Pages, set Source to "GitHub Actions". The publish workflow deploys the website to `https://<owner>.github.io/<repository>/`. It uses the existing `BNET_CLIENT_ID` and `BNET_CLIENT_SECRET` secrets for item names, and needs no other token.
+8. Run "Collect auction scan" manually once to confirm it works. The first release and the first website data appear the day after the first full UTC day of collection.
 
 ## Installing the addon
 
@@ -110,6 +129,8 @@ npm run probe                                    # inspect the live API
 npm run collect -- --region eu --out out         # one full scan to out/
 npm run aggregate -- --scans out --data data     # aggregate completed days
 npm run build-lua -- --data data                 # write addon/AuctionLedger/Data.lua
+npm run fetch-catalog                            # item names and icons to out/catalog.json.gz
+npm run build-site -- --data data                # write the website to _site/
 npm test                                         # unit tests
 ```
 

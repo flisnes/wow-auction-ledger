@@ -36,10 +36,13 @@ export function createClient({ region, token, locale = 'en_US' }) {
   if (!REGIONS.has(region)) throw new Error(`Unknown region "${region}". Use one of: ${[...REGIONS].join(', ')}`);
   const host = `https://${region}.api.blizzard.com`;
 
-  // kind is "dynamic" or "static". Returns { body, headers }, or null for an allowed 404.
+  // kind is "dynamic" or "static" for the Forever namespaces, or another
+  // namespace without the region suffix ("static-classic1x"). Returns
+  // { body, headers }, or null for an allowed 404.
   async function get(path, kind, { allow404 = false } = {}) {
+    const namespace = kind.includes('-') ? `${kind}-${region}` : `${kind}-forever-${region}`;
     const url = new URL(path, host);
-    url.searchParams.set('namespace', `${kind}-forever-${region}`);
+    url.searchParams.set('namespace', namespace);
     url.searchParams.set('locale', locale);
 
     for (let attempt = 1; ; attempt++) {
@@ -55,7 +58,7 @@ export function createClient({ region, token, locale = 'en_US' }) {
       if (res.status === 404 && allow404) return null;
       const retryable = res.status === 429 || res.status >= 500;
       if (!retryable || attempt >= MAX_ATTEMPTS) {
-        throw new Error(`GET ${url.pathname}?namespace=${kind}-forever-${region}: HTTP ${res.status}`);
+        throw new Error(`GET ${url.pathname}?namespace=${namespace}: HTTP ${res.status}`);
       }
       await sleep(2000 * attempt);
     }

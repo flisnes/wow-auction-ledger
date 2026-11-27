@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auction Ledger</title>
+  <meta name="description" content="Daily auction house prices for World of Warcraft: Forever over the last 29 days.">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Auction Ledger</h1>
+      <p class="sub">Daily auction house prices for World of Warcraft: Forever over the last 29 days</p>
+    </div>
+    <div class="controls">
+      <label>Region <select id="region" disabled></select></label>
+      <label>Auction house <select id="house" disabled></select></label>
+    </div>
+  </header>
+
+  <main>
+    <p id="status" class="status" role="status" hidden></p>
+    <div id="layout" class="layout" hidden>
+      <section class="browse" aria-label="Items">
+        <div class="filters">
+          <input id="search" type="search" placeholder="Search by name or item id" autocomplete="off" aria-label="Search items">
+          <select id="quality" aria-label="Quality"><option value="">All qualities</option></select>
+          <select id="class" aria-label="Item type"><option value="">All types</option></select>
+        </div>
+        <p id="count" class="count"></p>
+        <div class="table-wrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th scope="col" data-sort="name"><button type="button">Item</button></th>
+                <th scope="col" class="num" data-sort="latest"><button type="button">Latest</button></th>
+                <th scope="col" class="num opt-narrow" data-sort="median"><button type="button">29-day median</button></th>
+                <th scope="col" class="num" data-sort="change"><button type="button">vs median</button></th>
+                <th scope="col" class="num opt" data-sort="low"><button type="button">Typical lowest</button></th>
+                <th scope="col" class="num opt" data-sort="qty"><button type="button">Quantity</button></th>
+                <th scope="col" class="num opt" data-sort="days"><button type="button">Days</button></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <button id="more" class="more" type="button" hidden>Show more</button>
+      </section>
+      <aside id="detail" class="detail" aria-label="Item details"></aside>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <p>
+      Data source: Blizzard Entertainment. Auction Ledger is not affiliated with or endorsed by Blizzard Entertainment.
+      Prices are per unit. Days older than 30 days are hidden.
+      <span id="updated"></span>
+    </p>
+    <p id="links" hidden><a id="repo-link">Source code and addon</a> · <a id="privacy-link">Privacy</a></p>
+  </footer>
+</body>
+</html>

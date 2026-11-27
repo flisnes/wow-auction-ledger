@@ -12,6 +12,8 @@
     "collect": "node collector/collect.mjs",
     "aggregate": "node collector/aggregate.mjs",
     "build-lua": "node collector/build-lua.mjs",
+    "fetch-catalog": "node collector/fetch-catalog.mjs",
+    "build-site": "node collector/build-site.mjs",
     "test": "node --test"
   }
 }
